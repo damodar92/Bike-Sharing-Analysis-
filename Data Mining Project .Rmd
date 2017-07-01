@@ -1,0 +1,321 @@
+---
+title: "Data Mining Project"
+author: "Damodar Padubidri Bhat & Sanket Bagewadi"
+date: "3/20/2017"
+output: word_document
+---
+```{r}
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+library(sqldf)
+library(DBI)
+library(plyr)
+library(plotrix)
+library(lattice)  
+library(nutshell) 
+library(randomForest)
+library(ggmap)
+library(car)  
+library(mapproj)
+set.seed(415)
+```
+#Load Data into R
+```{r}
+data_2015_Q2 = read.csv("C:/Users/Sanket Bagewadi/Documents/ACADEMICS/Data Mining/Project/2015-Q2/HealthyRide Rentals_2015_Q2.csv", sep=",", fill=T, header=T)
+
+data_2015_Q3 = read.csv("C:/Users/Sanket Bagewadi/Documents/ACADEMICS/Data Mining/Project/2015-Q3/HealthyRide Rentals 2015 Q3.csv", sep=",", fill=T, header=T)
+
+data_2015_Q4 = read.csv("C:/Users/Sanket Bagewadi/Documents/ACADEMICS/Data Mining/Project/2015-Q4/HealthyRide Rentals 2015 Q4.csv", sep=",", fill=T, header=T)
+
+data_2016_Q1 = read.csv("C:/Users/Sanket Bagewadi/Documents/ACADEMICS/Data Mining/Project/2016-Q1/HealthyRide Rentals 2016 Q1.csv", sep=",", fill=T, header=T)
+
+data_2016_Q2 = read.csv("C:/Users/Sanket Bagewadi/Documents/ACADEMICS/Data Mining/Project/2016-Q2/HealthyRide Rentals 2016 Q2.csv", sep=",", fill=T, header=T)
+
+data_2016_Q3 = read.csv("C:/Users/Sanket Bagewadi/Documents/ACADEMICS/Data Mining/Project/2016-Q3/HealthyRide Rentals 2016 Q3.csv", sep=",", fill=T, header=T)
+
+data_2016_Q4 = read.csv("C:/Users/Sanket Bagewadi/Documents/ACADEMICS/Data Mining/Project/2016-Q4/HealthyRide Rentals 2016 Q4.csv", sep=",", fill=T, header=T)
+
+data_LatLon = read.csv("C:/Users/Sanket Bagewadi/Documents/ACADEMICS/Data Mining/Project/2015-Q2/HealthyRideStations2015.csv", sep=",", fill=T, header=T)
+
+
+bike_unalterred <- rbind(data_2015_Q2,data_2015_Q3,data_2015_Q4,data_2016_Q1,data_2016_Q2,data_2016_Q3,data_2016_Q4)
+
+rentData <- merge(bike_unalterred, data_LatLon, by.x = "From.station.id", by.y = "StationNum", all = TRUE)
+
+rentData$Usertype <- NULL
+```
+
+```{r}
+rentData <- na.omit(rentData)
+
+rentData$Starttime <- strptime(rentData$Starttime, format="%m/%d/%Y %H:%M")
+rentData$Stoptime <- strptime(rentData$Stoptime, format="%m/%d/%Y %H:%M")
+
+rentData$Trip.id <- as.factor(rentData$Trip.id)
+rentData$Bikeid<- as.factor(rentData$Bikeid)
+rentData$From.station.id <- as.factor(rentData$From.station.id)
+rentData$To.station.id <- as.factor(rentData$To.station.id)
+
+
+  rentData$PickupHour <- as.factor(rentData$Starttime$hour)
+  rentData$PickupDay <-  as.factor(rentData$Starttime$mday)
+  rentData$PickupMonth <- as.factor(rentData$Starttime$mon+1)
+  rentData$PickupYear <- as.factor(rentData$Starttime$year + 1900)
+  
+  rentData$DropHour <- as.factor(rentData$Stoptime$hour)
+  rentData$DropDay <-  as.factor(rentData$Stoptime$mday)
+  rentData$DropMonth <- as.factor(rentData$Stoptime$mon+1) 
+  rentData$DropYear <- as.factor(rentData$Stoptime$year + 1900)
+  
+  rentData$Tripduration <- as.numeric(rentData$Tripduration)
+  rentData$totalUsage <- rentData$Tripduration/3600
+  rentData$totalUsage <- ceiling(rentData$totalUsage)
+  
+  rentDataOne <- rentData
+  rentDataOne$PickupHour <- as.numeric(levels(rentDataOne$PickupHour))[rentDataOne$PickupHour]
+  rentDataOne$PickupDay <- as.numeric(levels(rentDataOne$PickupDay))[rentDataOne$PickupDay]
+  rentDataOne$PickupHour <- as.numeric(levels(rentDataOne$DropHour))[rentDataOne$DropHour]
+  rentDataOne$PickupDay <- as.numeric(levels(rentDataOne$DropDay))[rentDataOne$DropDay]
+  
+Pickuptime <- rentData[,c('From.station.id', 'PickupHour','PickupDay', 'PickupMonth', 'PickupYear','Latitude','Longitude')]
+Droptime <- rentData[,c('To.station.id', 'DropHour','DropDay', 'DropMonth', 'DropYear','Latitude','Longitude')]
+
+Pickuptime <- count(Pickuptime, c('From.station.id', 'PickupHour','PickupDay', 'PickupMonth', 'PickupYear','Latitude','Longitude'))
+Droptime <- count(Droptime, c('To.station.id', 'DropHour','DropDay', 'DropMonth', 'DropYear','Latitude','Longitude'))
+
+colnames(Pickuptime)[8] <-"bikeCount"
+colnames(Droptime)[8] <-"bikeCount"
+
+weather_data <- read.csv("C:/Users/Sanket Bagewadi/Documents/ACADEMICS/Data Mining/Project/Weather_Data.csv", sep=",", header=T)
+weather_data <-weather_data[,c("STATION_NAME","DATE","TAVG","TMAX","TMIN","WESD","WESF","WT01","WT02","WT03","WT04","WT05","WT09")]
+
+#checking for the day of the week
+weather_data$weekday <-wday(as.Date(weather_data$DATE,'%m/%d/%Y'))
+weather_data$weekday <- as.numeric(weather_data$weekday)
+
+weather_data$weekday <- ifelse((weather_data$weekday == 7 | weather_data$weekday==6),1,0)
+weather_data$ISFOG <- ifelse((weather_data$WT01 == 1 | weather_data$WT02==1),1,0)
+weather_data$ISRAIN <- ifelse((weather_data$WT03 == 1),2,0)
+weather_data$ISSNOW <- ifelse((weather_data$WT04 == 1 | weather_data$WT05==1),3,0)
+
+weather_data$Climate <- ifelse((weather_data$WT01 == 1 | weather_data$WT02==1 | weather_data$WT03==1 ),"Rain","Snow")
+
+tmax_data <-sqldf('select DATE, max(TMAX) from weather_data group by DATE')
+weather_demo <- merge(weather_data,tmax_data)
+tmin_data <-sqldf('select DATE, max(TMIN) from weather_data group by DATE') 
+tavg_data <- sqldf('select DATE, max(TAVG) from weather_data group by DATE') 
+wesd_data <-sqldf('select DATE, max(WESF) from weather_data group by DATE')
+wesf_data <- sqldf('select DATE, max(WESD) from weather_data group by DATE')
+
+new_data <- sqldf('select distinct(DATE), max(TMAX), Climate, weekday from weather_demo group by DATE' )
+
+Count_Bikesrented_Perhour <- Pickuptime%>%group_by(From.station.id,PickupHour,PickupDay,PickupMonth,PickupYear,Latitude,Longitude) %>%summarise_each(funs(sum), bikeCount) %>% arrange(PickupYear, PickupMonth)
+
+Count_Top_Rented_Stations <- Pickuptime %>% group_by(From.station.id) %>%summarise_each(funs(sum), bikeCount) %>%arrange(desc(bikeCount))
+
+#Top 10 stations were bikes are Picked up
+top10_Pickups <- Count_Top_Rented_Stations[1:10,]
+
+Count_BikesReturned_PerStation <- Droptime %>%group_by(To.station.id) %>%summarise_each(funs(sum), bikeCount) %>% arrange(desc(bikeCount))
+
+#Top 10 staions were bikes are Dropped
+top10_Drops<- Count_BikesReturned_PerStation[1:10,]
+
+#Busiest station on hourley basis FromStationID.
+Count_Bikesrented_Hourly_Stationwise <- Pickuptime %>%group_by(From.station.id,PickupHour) %>% summarise_each(funs(sum), bikeCount) %>%arrange(PickupHour)
+
+colnames(Count_Bikesrented_Hourly_Stationwise)[1] <- "FromStationId"
+
+busy_Station_hourly<- sqldf('select * from Count_Bikesrented_Hourly_Stationwise group by Pickuphour having max(bikeCount) order by PickupHour asc') 
+
+#Busiest station on hourley basis ToStationID.
+Count_BikesDropped_Hourly_Stationwise <- Droptime %>% group_by(To.station.id,DropHour) %>% summarise_each(funs(sum), bikeCount) %>%arrange(DropHour)
+
+colnames(Count_BikesDropped_Hourly_Stationwise)[1] <- "ToStationId"
+
+busy_Station_hourly_drop<- sqldf('select * from Count_BikesDropped_Hourly_Stationwise group by Drophour having max(bikeCount) order by DropHour asc')
+```
+
+```{r}
+new_data$Climate[which(new_data$`max(TMAX)` >=70)] <- "Sunny"
+colnames(new_data)[2] <- "MaxTemp"
+new_data$DATE <- strptime(new_data$DATE, format = "%m/%d/%Y")
+
+ new_data$Year <- as.factor(new_data$DATE$year + 1900)
+ new_data$Day <-  as.factor(new_data$DATE$mday)
+ new_data$Month <- as.factor(new_data$DATE$mon+1)
+
+rentWeatherMerged <-merge(Count_Bikesrented_Perhour, new_data, by.x = c('PickupDay','PickupMonth','PickupYear'), by.y = c('Day','Month','Year'))
+
+rentWeatherMerged <-na.omit(rentWeatherMerged)
+
+rentWeatherMerged$DATE <- as.character(rentWeatherMerged$DATE) 
+
+Climate_Data_2015 <-sqldf('select sum(bikeCount) as count,Climate,PickupYear from rentWeatherMerged group by Climate')
+Weekday_Data <-sqldf('select sum(bikeCount) as count,weekday from rentWeatherMerged group by weekday')
+
+rentWeatherMerged$Climate <- mapvalues(rentWeatherMerged$Climate, from = c('Sunny','Rain','Snow'), to = c(1,2,3))
+
+rentWeatherMerged$Climate <-as.numeric(rentWeatherMerged$Climate)
+
+holiday <- table(rentWeatherMerged$weekday)
+barplot(holiday,ylab="Count",col="blue", names.arg=c("weekday", "weekend"), ylim=c(0,65000))
+
+#Pie Chart
+slices <- Climate_Data_2015$count
+lbls <- c("Sunny","Rainy", "Snowy")
+pie3D(slices,labels=lbls,explode=0.5,main="Pie Chart - Climate wise Bike Count 2015 ")
+
+ggplot(rentDataOne, aes(PickupHour, fill=PickupYear))  + ggtitle("Rented Bikes Per Hour") +
+  labs(x="Hour")  + geom_histogram(binwidth =0.5) +  theme_bw()
+
+
+ggplot(rentDataOne, aes(PickupDay, fill=PickupMonth))  + ggtitle("Rented Bikes Per Day") +
+  labs(x="Day")  + geom_histogram(binwidth = 0.5) +  theme_bw() + facet_grid(PickupMonth~PickupYear)
+
+
+ggplot(rentDataOne, aes(PickupMonth, fill = PickupYear)) + geom_bar() + ggtitle("Rented Bikes Per Month")
+
+rentDataOne$PickupMonth <- as.numeric(rentDataOne$PickupMonth)
+
+ggplot(rentDataOne, aes(PickupMonth, fill=PickupYear))  + ggtitle("Rented Bikes Returned Per Month") +
+  labs(x="Months")  + geom_histogram(binwidth = 0.5) +  theme_bw() 
+
+ggplot(rentDataOne, aes(DropMonth, fill = DropYear)) + geom_bar() + ggtitle("Dropped Bikes Per Month")
+
+```
+
+```{r}
+map <- get_map(location = 'Pittsburgh', zoom = 12, maptype = "roadmap") #set map backgroud
+ggmap(map)
+
+mapdot <- read.csv("C:/Users/Sanket Bagewadi/Documents/ACADEMICS/Data Mining/Project/rent_loc.csv", header=TRUE, stringsAsFactors=FALSE)
+
+mapdot[1:3,]
+mapdot
+
+mapdot$size[mapdot$n<1000]<-1
+mapdot$size[mapdot$n>=1000 & mapdot$n<2000]<-2
+mapdot$size[mapdot$n>=2000 & mapdot$n<3000]<-3
+mapdot$size[mapdot$n>=3000 & mapdot$n<4000]<-4
+mapdot$size[mapdot$n>=4000 & mapdot$n<=5000]<-5
+mapdot$size[mapdot$n>=5000 & mapdot$n<=6000]<-6
+mapdot$size[mapdot$n>6000]<-7
+
+Lat <- c(1:50)
+Lon <- c(1:50)
+
+for (x in 1:50) {
+  Lat[x] = mapdot$Latitude[x]
+  Lon[x] = mapdot$Longitude[x]
+  #size1[x] = mapdot$size1[x]
+}
+
+Lat = as.numeric(Lat) #change to numeric
+Lon = as.numeric(Lon)
+
+ggmap(map) + geom_point(data=mapdot, aes(x=Lon, y=Lat,size=mapdot$size, color=factor(mapdot$size)), alpha=0.9)+
+  scale_size_continuous(range = c(4, 11))+geom_text(data = mapdot,aes(x = Lon,y = Lat,
+                                                                      label = mapdot$X),color = 'blue',hjust=0, vjust=0)
+
+```
+
+```{r}
+train<-as.data.frame(subset(rentWeatherMerged,rentWeatherMerged$PickupDay %in% c(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19)))
+
+test<-as.data.frame(subset(rentWeatherMerged,rentWeatherMerged$PickupDay %in% c(20,21,22,23,24,25,26,27,28,29,30,31)))
+
+#Linear Regression
+trainSet = train$bikeCount
+testSet = test$bikeCount
+
+linearModel = lm(bikeCount~Climate+weekday+MaxTemp+From.station.id+Latitude+Longitude+PickupHour+PickupMonth+PickupYear, data=train)
+summary(linearModel)
+plot(linearModel$residuals ~ linearModel$fitted.values)
+hist(linearModel$residuals)
+qqnorm(linearModel$residuals)
+predLinear = predict(linearModel,newdata=test)
+prediction_result <-  data.frame(testSet,predLinear)
+prediction_result$error = predLinear - testSet
+observedSet = testSet
+error = predLinear - observedSet
+RMSELin=sqrt(mean(error^2))
+RMSELin
+
+Y=rentWeatherMerged$bikeCount
+X=(rentWeatherMerged$Climate)+(rentWeatherMerged$weekday)+(rentWeatherMerged$MaxTemp)+(rentWeatherMerged$Latitude)
+ggplot(data.frame(X = X, Y = Y), aes(x = X, y = Y)) +xlab("Independent Variables") +
+  ylab("Dependent Variable") + geom_point() + geom_smooth(method = 'lm', se = FALSE)
+
+```
+
+```{r}
+#Polynomial Regression
+polyModel = lm(bikeCount ~ poly(Climate+Latitude+Longitude, degree = 4) + poly(MaxTemp, degree = 3) + weekday, data=train)
+hist(polyModel$residuals)
+qqnorm(polyModel$residuals)
+plot(polyModel$residuals ~ polyModel$fitted.values)
+summary(polyModel)
+predictPoly = predict(polyModel,newdata=test)
+prediction_result <-  data.frame(testSet,predictPoly)
+prediction_result$error = predictPoly - testSet
+observedSet = testSet
+error = predictPoly - observedSet
+
+RMSEPol=sqrt(mean(error^2))
+RMSEPol
+```
+
+```{r}
+
+#random Forest
+library(randomForest)
+library(caret)
+depth = floor(sqrt(ncol(train)))
+
+RfRegression = randomForest(bikeCount~MaxTemp+Climate+weekday+From.station.id+PickupHour, data = train,ntree = 500, importance = TRUE)
+rf <- RfRegression
+plot(rf)
+importance(rf)
+varImpPlot(rf)
+RfPrediction = predict(RfRegression, newdata = test)
+RMSErf = sqrt(mean((RfPrediction - test$bikeCount)^2))
+```
+```{r}
+#Gradient boost
+library(gbm)
+grb = gbm(bikeCount~MaxTemp+Climate+weekday+From.station.id+PickupHour, data = train, distribution = "gaussian", n.trees = 20000, interaction.depth = depth)
+summary(grb)
+gradBoost <-grb
+
+grbPrediction = predict(grb, newdata = test, n.trees = 20000)
+RMSEgrb = sqrt(mean((grbPrediction - test$bikeCount)^2))
+
+```
+
+```{r}
+EnsembleData = data.frame(RfPrediction, grbPrediction, ncount = test$bikeCount)
+ensemblePred = train(ncount~ ., method = "gam", data = EnsembleData)
+ensembleModelPred = predict(ensemblePred, EnsembleData)
+RMSEensemble = sqrt(mean((ensembleModelPred - test$bikeCount)^2))
+ensemble <-ensemblePred
+```
+
+```{r}
+#xgboost
+library(xgboost)
+xgboostModel = xgboost(data = data.matrix(train), 
+                     label = train$bikeCount, 
+                     eta = 0.5,
+                     max_depth = 25, 
+                     nround=100, 
+                     subsample = 0.5,
+                     colsample_bytree = 0.5,
+                     seed = 1,
+                     objective = "reg:linear",
+                     nthread = 3
+)
+xgboostPredict = predict(xgboostModel, data.matrix(test))
+RMSExgBoost = sqrt(mean((xgboostPredict - test$bikeCount)^2))
+```
